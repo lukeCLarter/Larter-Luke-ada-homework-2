@@ -1,0 +1,387 @@
+---
+title: "Luke Larter EDA Assignment 2"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(mosaic)
+```
+
+#Challenge 1
+
+```{r}
+movies=as_tibble(read.csv("IMDB-movies.csv"))
+head(movies)
+```
+```{r}
+#get required subset
+sub=filter(movies, (startYear %in% (1920:1979)) & (runtimeMinutes %in% (60:180)))  
+```
+```{r}
+#get decade column
+sub=sub %>% mutate("decade"=case_when(
+  sub$startYear %in% (1920:1929) ~ "20s",
+  sub$startYear %in% (1930:1939) ~ "30s",
+  sub$startYear %in% (1940:1949) ~ "40s",
+  sub$startYear %in% (1950:1959) ~ "50s",
+  sub$startYear %in% (1960:1969) ~ "60s",
+  sub$startYear %in% (1970:1979) ~ "70s"))
+
+head(sub)
+```
+
+
+
+```{r}
+#plot runtime histograms
+p=ggplot(sub, aes(x=runtimeMinutes)) + geom_histogram() + facet_wrap(~decade)
+p
+```
+
+```{r}
+#get pop means and sds by decade
+results <- summarize(
+  group_by(sub, decade),
+  pop_mean = mean(runtimeMinutes, na.rm = TRUE),
+  pop_sd = sqrt(sum((runtimeMinutes - mean(runtimeMinutes))^2)/(n())),
+  pop_n=n() 
+)
+
+results
+```
+
+```{r}
+#Get SE for sample of 100 movies from each decade
+
+n=100
+
+samp_dist <- summarize(
+  group_by(sub, decade),
+  samp=sample(runtimeMinutes, n, replace= FALSE),
+  samp_mean = mean(samp, na.rm = TRUE),
+  samp_sd = sd(samp),
+  samp_se = sd(samp)/sqrt(n)
+)
+
+#need this to remove duplicate rows due to using sample() in summarize:
+samp_dist=samp_dist[!duplicated(samp_dist$decade),][,-2] 
+
+samp_dist
+```
+```{r}
+compare=merge(results, samp_dist, by="decade")
+compare
+#Pretty darn close!
+```
+
+```{r}
+#creat function that generates sampling distributions
+
+sampling_distribution=function(df, g, n){ #df = a dataframe, g = number reps, n = sample size
+  means=numeric(g)
+  sds=numeric(g)
+  
+  for (i in 1:g){
+    sample=sample(df, n, replace=FALSE)
+    means[i]=mean(sample)
+    sds[i]=sd(sample)
+  }
+  samp_mean=mean(means)
+  samp_sd=sd(means)
+  res=list(means, sds, samp_mean, samp_sd)
+
+  return(res)
+}
+```
+
+
+```{r}
+#use function on all decades
+decades=vector("list", 6)
+
+for (i in 1:length(compare$decade)){
+  decades[[i]]=sampling_distribution(filter(sub, decade==compare$decade[i])$runtimeMinutes, 1000, 100) #using above function
+}
+```
+```{r}
+hist(decades[[1]][[1]], xlab="run time (mins)", main="20s")
+hist(decades[[2]][[1]], xlab="run time (mins)", main="30s")
+hist(decades[[3]][[1]], xlab="run time (mins)", main="40s")
+hist(decades[[4]][[1]], xlab="run time (mins)", main="50s")
+hist(decades[[5]][[1]], xlab="run time (mins)", main="60s")
+hist(decades[[6]][[1]], xlab="run time (mins)", main="70s")
+
+#all are approximately normal
+```
+```{r}
+#get sd of all the sd sampling distributions (I hope this is correct, I was a little unsure as to which sampling distribution to summarize )
+compare$SE_samp_dist=c(sd(decades[[1]][[2]]),  
+      sd(decades[[2]][[2]]), 
+      sd(decades[[3]][[2]]),
+      sd(decades[[4]][[2]]),
+      sd(decades[[5]][[2]]),
+      sd(decades[[6]][[2]]))
+
+compare$SE_pop_var=results$pop_sd/sqrt(results$pop_n) #use values generated above to get pop SE
+compare[,7:9]
+
+#sample SE and the SE calculated from the sampling distribution are pretty similar, though for the 20s there is a decent disparity. The SE from population variance is is much lower than the other 2 for all decades except 20s.
+```
+
+
+
+
+#Challenge 2
+```{r}
+l <- 12
+
+print(paste('prob of 9 or fewer bees: ',ppois(9,l), sep=""))
+print(paste('prob of 0 bees: ', 1-ppois(0,l, lower.tail = FALSE), sep=""))
+print(paste('prob of 5 bees: ', 1-(ppois(4,l)+ppois(6,l, lower.tail=F)), sep=""))
+print(paste('prob of more than 18 bees: ', ppois(18,l, lower.tail=F), sep=""))
+```
+```{r}
+p1 <-
+  plotDist(
+    "pois",
+    lambda = l,
+    kind = "cdf",
+    main = paste0("Cumulative Probability\nwith lambda=", l),
+    xlab = "num bees",
+    ylab = "Pr(X≤x)",
+    type = "l",
+    xlim=c(0,24)
+  )
+
+p1
+```
+```{r}
+simulation_results=rpois(1460, 12)
+
+histogram(simulation_results, xlim=c(0,24))
+```
+
+
+
+
+
+
+#Challenge 3
+
+
+```{r}
+d <- as_tibble(read_csv('https://raw.githubusercontent.com/difiore/ada-2021-datasets/master/zombies.csv', col_names = TRUE))
+head(d)
+```
+```{r}
+#pop mean and sd for each quant var
+pops=summarize(d[c(4:7,9),],
+pop_mean_height=mean(height, na.rm = TRUE),
+pop_mean_weight=mean(weight, na.rm = TRUE),
+pop_mean_zombies_killed=mean(zombies_killed, na.rm = TRUE),
+pop_mean_age=mean(age, na.rm = TRUE),
+pop_mean_education=mean(years_of_education, na.rm = TRUE),
+pop_sd_height=sqrt(sum((height - mean(height))^2)/(n())),
+pop_sd_weight=sqrt(sum((weight - mean(weight))^2)/(n())),
+pop_sd_zombies_killed=sqrt(sum((zombies_killed - mean(zombies_killed))^2)/(n())),
+pop_sd_age=sqrt(sum((age - mean(age))^2)/(n())),
+pop_sd_education=sqrt(sum((years_of_education - mean(years_of_education))^2)/(n()))
+)
+
+pops
+```
+```{r}
+#box plots of quant vars by gender
+
+ggplot(d, aes(x=gender, y=height))+ 
+  geom_boxplot()
+ggplot(d, aes(x=gender, y=weight))+ 
+  geom_boxplot()
+ggplot(d, aes(x=gender, y=zombies_killed))+ 
+  geom_boxplot()
+ggplot(d, aes(x=gender, y=age))+ 
+  geom_boxplot()
+ggplot(d, aes(x=gender, y=years_of_education))+ 
+  geom_boxplot()
+
+```
+```{r}
+#scatterplots of height and weight 
+
+ggplot(d, aes(x=age, y=height, color=gender))+ 
+  geom_point()
+
+ggplot(d, aes(x=age, y=weight, color=gender))+ 
+  geom_point()
+
+#height and weight seem to be pretty positively correlated, and the slope seems similar for men and women, but the intercept for women is a bit lower
+```
+```{r}
+hist(d$height)
+hist(d$weight)
+hist(d$zombies_killed)
+hist(d$age)
+hist(d$years_of_education)
+
+qqnorm(d$height, main = "QQ Plot - Random Normal Variable")
+qqline(d$height, col = "gray")
+qqnorm(d$weight, main = "QQ Plot - Random Normal Variable")
+qqline(d$weight, col = "gray")
+qqnorm(d$zombies_killed, main = "QQ Plot - Random Normal Variable")
+qqline(d$zombies_killed, col = "gray")
+qqnorm(d$age, main = "QQ Plot - Random Normal Variable")
+qqline(d$age, col = "gray")
+qqnorm(d$years_of_education, main = "QQ Plot - Random Normal Variable")
+qqline(d$years_of_education, col = "gray")
+
+#Data for most variables seem normally distributed but, not unexpectedly, the 2 variables which represent counts (num zombies killed, years of education) have a poisson-ish distribution and are not normally distributed.
+```
+```{r}
+m=sample_n(d, 50, replace = FALSE)
+
+
+m_summ= m %>% summarize(
+  samp_mean_height= mean(height),
+  samp_sd_height=sd(height),
+  samp_se_height=sd(height)/50,
+  ci_height=mean(height) + c(-1, 1) * qnorm(1 - 0.05 / 2) * samp_se_height,
+  samp_mean_weight= mean(weight),
+  samp_sd_weight=sd(weight),
+  samp_se_weight=sd(weight)/50,
+  ci_weight=mean(weight) + c(-1, 1) * qnorm(1 - 0.05 / 2) * samp_se_weight,
+  samp_mean_zombies_killed= mean(zombies_killed),
+  samp_sd_zombies_killed=sd(zombies_killed),
+  samp_se_zombies_killed=sd(zombies_killed)/50,
+  ci_zombies_killed=mean(zombies_killed) + c(-1, 1) * qnorm(1 - 0.05 / 2) * samp_se_zombies_killed,
+  samp_mean_years_of_education= mean(years_of_education),
+  samp_sd_years_of_education=sd(years_of_education),
+  samp_se_years_of_education=sd(years_of_education)/50,
+  ci_years_of_education= mean(years_of_education) + c(-1, 1) * qnorm(1 - 0.05 / 2) * samp_se_years_of_education,
+  samp_mean_age= mean(age),
+  samp_sd_age=sd(age),
+  samp_se_age=sd(age)/50,
+  ci_age=mean(age) + c(-1, 1) * qnorm(1 - 0.05 / 2) * samp_se_age,
+)
+
+m_summ
+#note, for the ci column, the number sin the 2 rows represent the upper and lower CI bounds, and are redundant for all other metrics
+```
+```{r}
+#generate sampling distribution; loop populates empty vectors with sample statistics.
+means_height=numeric(100)
+means_weight=numeric(100)
+means_zombies_killed=numeric(100)
+means_years_of_education=numeric(100)
+means_age=numeric(100)
+sd_height=numeric(100)
+sd_weight=numeric(100)
+sd_zombies_killed=numeric(100)
+sd_years_of_education=numeric(100)
+sd_age=numeric(100)
+
+for (i in 1:100){
+  if (i != 100){
+  temp=sample_n(d, 50, replace = FALSE)}
+  else{
+    temp=m #uses my previous sample for the last slot
+  }
+  means_height[i]=mean(temp$height)
+  means_weight[i]=mean(temp$weight)
+  means_zombies_killed[i]=mean(temp$zombies_killed)
+  means_years_of_education[i]=mean(temp$years_of_education)
+  means_age[i]=mean(temp$age)
+  sd_height[i]= sd(temp$height)
+  sd_weight[i]= sd(temp$weight)
+  sd_zombies_killed[i]= sd(temp$zombies_killed)
+  sd_years_of_education[i]= sd(temp$years_of_education)
+  sd_age[i]= sd(temp$age)
+    
+  
+  
+}
+
+```
+```{r}
+#means of sampling distributions of means
+print(paste('mean of sample means, height is ', mean(means_height), sep=""))
+print(paste('mean of sample means, weight is ', mean(means_weight), sep=""))
+print(paste('mean of sample means, zombies_killed is ', mean(means_zombies_killed), sep=""))
+print(paste('mean of sample means, age is ', mean(means_age), sep=""))
+print(paste('mean of sample means, years_of_education is ', mean(means_years_of_education), sep=""))
+print(paste('mean of sample sd, height is ', mean(sd_height), sep=""))
+print(paste('mean of sample sd, weight is ', mean(sd_weight), sep=""))
+print(paste('mean of sample sd, zombies_killed is ', mean(sd_zombies_killed), sep=""))
+print(paste('mean of sample sd, years_of_education is ', mean(sd_years_of_education), sep=""))
+print(paste('mean of sample sd, age is ', mean(sd_age), sep=""))
+```
+```{r}
+#sds of sampling distrinutions of means
+print(paste('sd of sample means, height is ', sd(means_height), sep=""))
+print(paste('sd of sample means, weight is ', sd(means_weight), sep=""))
+print(paste('sd of sample means, zombies_killed is ', sd(means_zombies_killed), sep=""))
+print(paste('sd of sample means, age is ', sd(means_age), sep=""))
+print(paste('sd of sample means, years_of_education is ', sd(means_years_of_education), sep=""))
+print(paste('sd of sample sd, height is ', sd(sd_height), sep=""))
+print(paste('sd of sample sd, weight is ', sd(sd_weight), sep=""))
+print(paste('sd of sample sd, zombies_killed is ', sd(sd_zombies_killed), sep=""))
+print(paste('sd of sample sd, years_of_education is ', sd(sd_years_of_education), sep=""))
+print(paste('sd of sample sd, age is ', sd(sd_age), sep=""))
+
+```
+```{r}
+#CIs of sampling distribution of means. This printed weird... but I was running out of time! apologies
+print(paste('CI of sample means, height is ', mean(means_height) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(means_height)/sqrt(100)), sep=""))
+print(paste('CI of sample means, weight is ', mean(means_weight) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(means_weight)/sqrt(100)), sep=""))
+print(paste('CI of sample means, zombies_killed is ', mean(means_zombies_killed) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(means_zombies_killed)/sqrt(100)), sep=""))
+print(paste('CI of sample means, age is ', mean(means_age) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(means_age)/sqrt(100)), sep=""))
+print(paste('CI of sample means, years_of_education is ', mean(means_years_of_education) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(means_years_of_education)/sqrt(100)), sep=""))
+print(paste('CI of sample sd, height is ', mean(sd_height) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(sd_height)/sqrt(100)), sep=""))
+print(paste('CI of sample sd, weight is ', mean(sd_weight) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(sd_weight)/sqrt(100)), sep=""))
+print(paste('CI of sample sd, zombies_killed is ', mean(sd_zombies_killed) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(sd_zombies_killed)/sqrt(100)), sep=""))
+print(paste('CI of sample sd, years_of_education is ', mean(sd_years_of_education) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(sd_years_of_education)/sqrt(100)), sep=""))
+print(paste('CI of sample sd, age is ', mean(sd_age) + c(-1, 1) * qnorm(1 - 0.05 / 2) * (sd(sd_age)/sqrt(100)), sep=""))
+
+m_summ
+
+#The original CIS I calculated from my sample are similar to the CIs calculated from the sampling distribution, though there are some discrepancies. However, the intervals are, for the most part, pretty similar in how 'tight' they are.
+```
+```{r}
+# the standard deviations of the sampling distributions are much higher than the standard errors calculated for our sample of 50, apart from weight.
+
+
+#plot sampling distributions:
+
+hist(means_height)
+hist(means_weight)
+hist(means_zombies_killed)
+hist(means_age)
+hist(means_years_of_education)
+hist(sd_height)
+hist(sd_weight)
+hist(sd_zombies_killed)
+hist(sd_years_of_education)
+hist(sd_age)
+
+#all of the sampling distributions look pretty normal-ish, even for the count variables. However, number of zombies killed looks slightly 'block-y'.
+```
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
